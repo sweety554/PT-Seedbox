@@ -109,7 +109,18 @@ bash <(wget -qO- https://raw.githubusercontent.com/vivibudong/PT-Seedbox/refs/he
 - 🔧 提升文件描述符限制
 - 🔧 配置网络缓冲区和队列长度
 
-## License
+### License
 
-MIT
+his project is licensed under the [MIT License](LICENSE), allowing free use, modification, and distribution with proper attribution.
+
+### Contact
+
+For issues or suggestions, open an issue on GitHub or reach out via email: budongkejivivi@gmail.com
+
+<div align="center"> <strong>Made with ❤️ by <a href="https://github.com/vivibudong">Vivi不懂</a></strong> </div>
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=vivibudong/PT-Seedbox&type=date&legend=top-left)](https://www.star-history.com/#vivibudong/PT-Seedbox&type=date&legend=top-left)
+
 
