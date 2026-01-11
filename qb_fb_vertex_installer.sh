@@ -5,7 +5,7 @@
 # 适用于 Debian 10+ / Ubuntu 20.04+ (包括 RAID 环境)
 # 
 # 使用方法:
-# bash <(wget -qO- https://raw.githubusercontent.com/vivibudong/Dedicated-Seedbox/refs/heads/main/qb_fb_vertex_installer02.sh) -u 用户名 -p 密码 -c 缓存大小 -q 4.3.9 -l v1.2.20 -v
+# bash <(wget -qO- https://raw.githubusercontent.com/vivibudong/PT-Seedbox/refs/heads/main/qb_fb_vertex_installer.sh) -u 用户名 -p 密码 -c 缓存大小 -q 4.3.9 -l v1.2.20 -v
 #
 # 参数说明:
 #   -u : 用户名
@@ -19,10 +19,10 @@
 #   -h : 显示帮助
 ################################################################################
 
-QB_NOX_X86_URL="https://github.com/vivibudong/Seedbox-Components/raw/refs/heads/main/Torrent%20Clients/qBittorrent/x86_64/qBittorrent-4.3.9%20-%20libtorrent-v1.2.20/qbittorrent-nox"
-QB_NOX_ARM_URL="https://github.com/vivibudong/Seedbox-Components/raw/refs/heads/main/Torrent%20Clients/qBittorrent/ARM64/qBittorrent-4.3.9%20-%20libtorrent-v1.2.20/qbittorrent-nox"
-QB_PASS_GEN_X86_URL="https://github.com/vivibudong/Seedbox-Components/raw/refs/heads/main/Torrent%20Clients/qBittorrent/x86_64/qb_password_gen"
-QB_PASS_GEN_ARM_URL="https://github.com/vivibudong/Seedbox-Components/raw/refs/heads/main/Torrent%20Clients/qBittorrent/ARM64/qb_password_gen"
+QB_NOX_X86_URL="https://github.com/vivibudong/PT-Seedbox/raw/refs/heads/main/Torrent%20Clients/qBittorrent/x86_64/qBittorrent-4.3.9%20-%20libtorrent-v1.2.20/qbittorrent-nox"
+QB_NOX_ARM_URL="https://github.com/vivibudong/PT-Seedbox/raw/refs/heads/main/Torrent%20Clients/qBittorrent/ARM64/qBittorrent-4.3.9%20-%20libtorrent-v1.2.20/qbittorrent-nox"
+QB_PASS_GEN_X86_URL="https://github.com/vivibudong/PT-Seedbox/raw/refs/heads/main/Torrent%20Clients/qBittorrent/x86_64/qBittorrent-4.3.9%20-%20libtorrent-v1.2.20/qb_password_gen"
+QB_PASS_GEN_ARM_URL="https://github.com/vivibudong/PT-Seedbox/raw/refs/heads/main/Torrent%20Clients/qBittorrent/ARM64/qBittorrent-4.3.9%20-%20libtorrent-v1.2.20/qb_password_gen"
 
 # Vertex Docker 镜像
 VERTEX_DOCKER_IMAGE="lswl/vertex:stable"
@@ -1235,7 +1235,7 @@ while getopts "u:p:c:q:l:vfod:k:h" opt; do
             boring_text "  -h : 显示帮助"
             seperator
             info "卸载方法:"
-            boring_text "  bash <(wget -qO- https://raw.githubusercontent.com/vivibudong/Dedicated-Seedbox/refs/heads/main/qb_fb_vertex_installer02.sh) --uninstall"
+            boring_text "  bash <(wget -qO- https://raw.githubusercontent.com/vivibudong/PT-Seedbox/refs/heads/main/qb_fb_vertex_installer.sh) --uninstall"
             seperator
             exit 0
             ;;
