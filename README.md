@@ -23,21 +23,21 @@
 ### 基础安装（仅 qBittorrent）
 
 ```bash
-bash <(wget -qO- https://raw.githubusercontent.com/vivibudong/Dedicated-Seedbox/refs/heads/main/qb_fb_vertex_installer02.sh) \
+bash <(wget -qO- https://raw.githubusercontent.com/vivibudong/PT-Seedbox/refs/heads/main/qb_fb_vertex_installer.sh) \
   -u 用户名 -p 密码 -c 2048
 ```
 
 ### 完整安装（qBittorrent + Vertex + FileBrowser）
 
 ```bash
-bash <(wget -qO- https://raw.githubusercontent.com/vivibudong/Dedicated-Seedbox/refs/heads/main/qb_fb_vertex_installer02.sh) \
+bash <(wget -qO- https://raw.githubusercontent.com/vivibudong/PT-Seedbox/refs/heads/main/qb_fb_vertex_installer.sh) \
   -u 用户名 -p 密码 -c 2048 -v -f
 ```
 
 ### 自定义端口
 
 ```bash
-bash <(wget -qO- https://raw.githubusercontent.com/vivibudong/Dedicated-Seedbox/refs/heads/main/qb_fb_vertex_installer02.sh) \
+bash <(wget -qO- https://raw.githubusercontent.com/vivibudong/PT-Seedbox/refs/heads/main/qb_fb_vertex_installer.sh) \
   -u 用户名 -p 密码 -c 2048 -v -f -o
 ```
 *执行后会提示输入各服务端口*
@@ -45,7 +45,7 @@ bash <(wget -qO- https://raw.githubusercontent.com/vivibudong/Dedicated-Seedbox/
 ### 恢复 Vertex 配置
 
 ```bash
-bash <(wget -qO- https://raw.githubusercontent.com/vivibudong/Dedicated-Seedbox/refs/heads/main/qb_fb_vertex_installer02.sh) \
+bash <(wget -qO- https://raw.githubusercontent.com/vivibudong/PT-Seedbox/refs/heads/main/qb_fb_vertex_installer.sh) \
   -u 用户名 -p 密码 -c 2048 -v -f \
   -d "data.zip 直链" -k "解压密码(可选)"
 ```
@@ -69,7 +69,7 @@ bash <(wget -qO- https://raw.githubusercontent.com/vivibudong/Dedicated-Seedbox/
 完整清理所有组件（包括配置、数据、依赖包）：
 
 ```bash
-bash <(wget -qO- https://raw.githubusercontent.com/vivibudong/Dedicated-Seedbox/refs/heads/main/qb_fb_vertex_installer02.sh) \
+bash <(wget -qO- https://raw.githubusercontent.com/vivibudong/PT-Seedbox/refs/heads/main/qb_fb_vertex_installer.sh) \
   --uninstall
 ```
 
@@ -112,3 +112,4 @@ bash <(wget -qO- https://raw.githubusercontent.com/vivibudong/Dedicated-Seedbox/
 ## License
 
 MIT
+
