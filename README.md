@@ -44,11 +44,16 @@ bash <(wget -qO- https://s.v1v1.de/seedbox) -u 用户名 -p 密码 -c 2048 -v -f
 https://raw.githubusercontent.com/vivibudong/PT-Seedbox/refs/heads/main/qb_fb_vertex_installer.sh
 ```
 
-## 支持系统
+##✅  支持系统
 
-- Debian 10+
-- Ubuntu 20.04+
-- 架构：x86_64 / ARM64
+✅ Debian 10、11、12、13
+✅ Ubuntu 20.04、22.04、23.04/23.10、24.04
+
+##❌ 不支持的系统:
+
+❌ Debian 9 及更早版本
+❌ Ubuntu 18.04 及更早版本
+❌ 其他 Linux 发行版 (CentOS, Fedora, Arch 等)
 
 ## 功能特性
 
@@ -131,6 +136,7 @@ For issues or suggestions, open an issue on GitHub or reach out via email: budon
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=vivibudong/PT-Seedbox&type=date&legend=top-left)](https://www.star-history.com/#vivibudong/PT-Seedbox&type=date&legend=top-left)
+
 
 
 
