@@ -17,31 +17,26 @@ bash <(wget -qO- https://s.v1v1.de/seedbox) -u ptseedbox2026 -p PtSeedB0x-2026 -
 ### 基础安装（仅 qBittorrent）
 
 ```bash
-bash <(wget -qO- https://s.v1v1.de/seedbox) \
-  -u 用户名 -p 密码 -c 2048
+bash <(wget -qO- https://s.v1v1.de/seedbox) -u 用户名 -p 密码 -c 2048
 ```
 
 ### 完整安装（qBittorrent + Vertex + FileBrowser）
 
 ```bash
-bash <(wget -qO- https://s.v1v1.de/seedbox) \
-  -u 用户名 -p 密码 -c 2048 -v -f
+bash <(wget -qO- https://s.v1v1.de/seedbox) -u 用户名 -p 密码 -c 2048 -v -f
 ```
 
 ### 自定义端口
 
 ```bash
-bash <(wget -qO- https://s.v1v1.de/seedbox) \
-  -u 用户名 -p 密码 -c 2048 -v -f -o
+bash <(wget -qO- https://s.v1v1.de/seedbox) -u 用户名 -p 密码 -c 2048 -v -f -o
 ```
 *执行后会提示输入各服务端口*
 
 ### 恢复 Vertex 配置式安装
 
 ```bash
-bash <(wget -qO- https://s.v1v1.de/seedbox) \
-  -u 用户名 -p 密码 -c 2048 -v -f \
-  -d "data.zip 直链" -k "解压密码(可选)"
+bash <(wget -qO- https://s.v1v1.de/seedbox) -u 用户名 -p 密码 -c 2048 -v -f -d "data.zip 直链" -k "解压密码(可选)"
 ```
 
 ### 注：如遇网络问题，可将短链替换回RAW
@@ -84,8 +79,7 @@ https://raw.githubusercontent.com/vivibudong/PT-Seedbox/refs/heads/main/qb_fb_ve
 **执行后数据 无法恢复  ，请确保脑子与手已经对齐颗粒度**
 
 ```bash
-bash <(wget -qO- https://s.v1v1.de/seedbox) \
-  --uninstall
+bash <(wget -qO- https://s.v1v1.de/seedbox) --uninstall
 ```
 
 *卸载时仅会询问：是否删除下载数据、是否删除用户*
@@ -137,6 +131,7 @@ For issues or suggestions, open an issue on GitHub or reach out via email: budon
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=vivibudong/PT-Seedbox&type=date&legend=top-left)](https://www.star-history.com/#vivibudong/PT-Seedbox&type=date&legend=top-left)
+
 
 
 
