@@ -1278,7 +1278,7 @@ if [[ ! "$OS" =~ "Debian" ]] && [[ ! "$OS" =~ "Ubuntu" ]]; then
 fi
 
 if [[ "$OS" =~ "Debian" ]]; then
-    if [[ ! "$VER" =~ "10" ]] && [[ ! "$VER" =~ "11" ]] && [[ ! "$VER" =~ "12" ]]; then
+    if [[ ! "$VER" =~ "10" ]] && [[ ! "$VER" =~ "11" ]] && [[ ! "$VER" =~ "12" ]] && [[ ! "$VER" =~ "13" ]]; then
         fail "$OS $VER 不支持"
         info "仅支持 Debian 10+"
         exit 1
