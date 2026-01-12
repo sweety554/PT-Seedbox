@@ -20,6 +20,13 @@
 
 ## 快速开始
 
+### 我是小白我想一键（及时修改密码）
+
+```bash
+bash <(wget -qO- https://s.v1v1.de/seedbox) -u ptseedbox2026 -p PtSeedB0x-2026 -c 1024 -v -f
+```
+
+
 ### 基础安装（仅 qBittorrent）
 
 ```bash
@@ -122,6 +129,7 @@ For issues or suggestions, open an issue on GitHub or reach out via email: budon
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=vivibudong/PT-Seedbox&type=date&legend=top-left)](https://www.star-history.com/#vivibudong/PT-Seedbox&type=date&legend=top-left)
+
 
 
 
