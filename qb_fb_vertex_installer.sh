@@ -1079,7 +1079,7 @@ uninstall_all() {
     fi
     
     # 卸载其他工具
-    for pkg in jq wget curl unzip ethtool net-tools tuned sysstat psmisc apparmor apparmor-utils; do
+    for pkg in jq unzip ethtool net-tools tuned sysstat psmisc apparmor apparmor-utils; do
         if dpkg -l | grep -qw "^ii.*$pkg" 2>/dev/null; then
             info_2 "卸载 $pkg..."
             DEBIAN_FRONTEND=noninteractive apt-get -y -qq purge $pkg >/dev/null 2>&1 || true
