@@ -4,19 +4,6 @@
 
 快速部署 qBittorrent 4.3.9 + Vertex + FileBrowser 的一体化解决方案
 
-## 支持系统
-
-- Debian 10+
-- Ubuntu 20.04+
-- 架构：x86_64 / ARM64
-
-## 功能特性
-
-- ✅ qBittorrent 4.3.9 + libtorrent v1.2.20
-- ✅ Vertex 面板（Docker）
-- ✅ FileBrowser 文件管理（Docker）
-- ✅ 系统优化（BBR、内核参数、磁盘调度）
-- ✅ 随机端口分配
 
 ## 快速开始
 
@@ -49,7 +36,7 @@ bash <(wget -qO- https://raw.githubusercontent.com/vivibudong/PT-Seedbox/refs/he
 ```
 *执行后会提示输入各服务端口*
 
-### 恢复 Vertex 配置
+### 恢复 Vertex 配置式安装
 
 ```bash
 bash <(wget -qO- https://raw.githubusercontent.com/vivibudong/PT-Seedbox/refs/heads/main/qb_fb_vertex_installer.sh) \
@@ -57,6 +44,20 @@ bash <(wget -qO- https://raw.githubusercontent.com/vivibudong/PT-Seedbox/refs/he
   -d "data.zip 直链" -k "解压密码(可选)"
 ```
 
+## 支持系统
+
+- Debian 10+
+- Ubuntu 20.04+
+- 架构：x86_64 / ARM64
+
+## 功能特性
+
+- ✅ qBittorrent 4.3.9 + libtorrent v1.2.20
+- ✅ Vertex 面板（Docker）
+- ✅ FileBrowser 文件管理（Docker）
+- ✅ 系统优化（BBR、内核参数、磁盘调度）
+- ✅ 随机端口分配
+- 
 ## 参数说明
 
 | 参数 | 说明 | 必需 |
@@ -129,6 +130,7 @@ For issues or suggestions, open an issue on GitHub or reach out via email: budon
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=vivibudong/PT-Seedbox&type=date&legend=top-left)](https://www.star-history.com/#vivibudong/PT-Seedbox&type=date&legend=top-left)
+
 
 
 
