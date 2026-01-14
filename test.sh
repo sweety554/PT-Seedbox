@@ -168,7 +168,7 @@ update() {
     DEBIAN_FRONTEND=noninteractive apt-get -qq update >/dev/null 2>&1
     DEBIAN_FRONTEND=noninteractive apt-get -y -qq upgrade -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" >/dev/null 2>&1
 
-    for pkg in sudo wget curl sysstat psmisc unzip jq; do 
+    for pkg in sudo wget curl sysstat psmisc unzip jq net-tools lsof; do 
         if [ -z $(which $pkg 2>/dev/null) ]; then
             wait_for_dpkg_lock
             DEBIAN_FRONTEND=noninteractive apt-get install $pkg -y -qq >/dev/null 2>&1
