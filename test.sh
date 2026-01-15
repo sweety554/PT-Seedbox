@@ -16,6 +16,9 @@
 #   -v : 安装 Vertex
 #   -f : 安装 FileBrowser
 #   -o : 自定义端口 (会提示输入)
+#   -d : Vertex data 目录 ZIP 下载链接 (可选)
+#   -k : Vertex data ZIP 解压密码 (可选)
+#   -t : 启用系统优化
 #   -h : 显示帮助
 ################################################################################
 
@@ -30,44 +33,116 @@ VERTEX_DOCKER_IMAGE="lswl/vertex:stable"
 # FileBrowser Docker 镜像
 FILEBROWSER_DOCKER_IMAGE="filebrowser/filebrowser:latest"
 
-# 系统优化标记文件
-OPTIMIZATION_MARKER="/var/lib/qb_install_optimized"
+# ===== 随机端口生成函数 =====
+generate_random_port() {
+    # 生成 30000-65535 之间的随机端口
+    echo $((30000 + RANDOM % 35536))
+}
 
-# ===== 检查端口是否被占用 =====
-is_port_in_use() {
+# ===== 端口检查函数 =====
+port_in_use() {
     local port=$1
-    # 检查 TCP 和 UDP 端口
-    if ss -tuln 2>/dev/null | grep -q ":$port " || \
-       netstat -tuln 2>/dev/null | grep -q ":$port " || \
-       lsof -i :$port 2>/dev/null | grep -q "LISTEN"; then
-        return 0  # 端口被占用
+
+    if command -v ss >/dev/null 2>&1; then
+        ss -lntuH 2>/dev/null | awk '{print $5}' | sed 's/\[//; s/\]//' | grep -E "[:.]$port$" -q
+        return $?
+    elif command -v netstat >/dev/null 2>&1; then
+        netstat -lntu 2>/dev/null | awk 'NR>2{print $4}' | sed 's/\[//; s/\]//' | grep -E "[:.]$port$" -q
+        return $?
     else
-        return 1  # 端口空闲
+        return 1
     fi
 }
 
-# ===== 随机端口生成函数 (带占用检查) =====
-generate_random_port() {
-    local max_attempts=100
-    local attempt=0
-    local port
-    
-    while [ $attempt -lt $max_attempts ]; do
-        # 生成 30000-65535 之间的随机端口
-        port=$((30000 + RANDOM % 35536))
-        
-        # 检查端口是否被占用
-        if ! is_port_in_use $port; then
-            echo $port
+selected_ports=()
+port_selected() {
+    local port=$1
+    for used in "${selected_ports[@]}"; do
+        if [ "$used" = "$port" ]; then
             return 0
         fi
-        
-        attempt=$((attempt + 1))
     done
-    
-    # 如果100次都没找到可用端口，返回错误
-    fail "无法找到可用的随机端口"
     return 1
+}
+
+port_available() {
+    local port=$1
+    if port_in_use "$port"; then
+        return 1
+    fi
+    if port_selected "$port"; then
+        return 1
+    fi
+    return 0
+}
+
+register_port() {
+    selected_ports+=("$1")
+}
+
+pick_free_port() {
+    local port
+    for _ in $(seq 1 50); do
+        port=$(generate_random_port)
+        if port_available "$port"; then
+            echo "$port"
+            return 0
+        fi
+    done
+    return 1
+}
+
+prompt_for_port() {
+    local label=$1
+    local var_name=$2
+    local port
+
+    while true; do
+        need_input "请输入 ${label}端口:"
+        read port
+        while ! [[ "$port" =~ ^[0-9]+$ ]]; do
+            warn "端口必须是数字"
+            need_input "请输入 ${label}端口:"
+            read port
+        done
+        if port_available "$port"; then
+            eval "$var_name=$port"
+            register_port "$port"
+            return 0
+        else
+            warn "端口 $port 已被占用或与已选端口冲突"
+        fi
+    done
+}
+
+prompt_instance_name() {
+    local base=$1
+    local dir_prefix=$2
+    local suffix=2
+    local name
+
+    while true; do
+        local default_name="${base}${suffix}"
+        need_input "请输入 ${base} 实例名称 (默认: ${default_name}):"
+        read name
+        if [ -z "$name" ]; then
+            name="$default_name"
+        fi
+        if command -v docker >/dev/null 2>&1; then
+            if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qw "$name"; then
+                warn "实例名称已存在: $name"
+                suffix=$((suffix + 1))
+                continue
+            fi
+        fi
+        if [ -n "$dir_prefix" ] && [ -e "${dir_prefix}${name}" ]; then
+            warn "目录已存在: ${dir_prefix}${name}"
+            suffix=$((suffix + 1))
+            continue
+        fi
+        echo "$name"
+        return 0
+    done
 }
 
 # ===== 颜色输出函数 =====
@@ -238,28 +313,14 @@ install_qBittorrent_() {
     local qb_cache=$3
     local qb_port=$4
     local qb_incoming_port=$5
+    local multi_instance=$6
 
-    # 只停止当前用户的 qBittorrent 服务，不影响其他用户
-    if systemctl is-active --quiet qbittorrent-nox@$username 2>/dev/null; then
-        warn "检测到用户 $username 的 qBittorrent 正在运行,正在停止..."
-        systemctl stop qbittorrent-nox@$username 2>/dev/null || true
-        sleep 2
-    fi
-
-    # 检查二进制文件版本
-    if [ -f /usr/bin/qbittorrent-nox ]; then
-        current_version=$(/usr/bin/qbittorrent-nox --version 2>/dev/null | head -n1 || echo "unknown")
-        if [[ "$current_version" != *"4.3.9"* ]]; then
-            warn "检测到不同版本 ($current_version),正在更新..."
-            # 停止所有 qBittorrent 服务以安全替换二进制文件
-            for service in $(systemctl list-units --all 'qbittorrent-nox@*' --no-legend | awk '{print $1}'); do
-                systemctl stop "$service" 2>/dev/null || true
-            done
-            sleep 3
-            rm /usr/bin/qbittorrent-nox
-        else
-            info_2 "qBittorrent 4.3.9 二进制文件已存在,跳过下载..."
-            echo ""
+    if [ "$multi_instance" != "1" ]; then
+        if systemctl is-active --quiet qbittorrent-nox@$username 2>/dev/null; then
+            warn "qBittorrent 正在运行,正在停止..."
+            systemctl stop qbittorrent-nox@$username 2>/dev/null || true
+            pkill -u "$username" -f qbittorrent 2>/dev/null || true
+            sleep 2
         fi
     fi
 
@@ -274,8 +335,10 @@ install_qBittorrent_() {
         return 1
     fi
 
-    # 只在二进制文件不存在时下载
-    if [ ! -f /usr/bin/qbittorrent-nox ]; then
+    if [ -f /usr/bin/qbittorrent-nox ] && [ "$multi_instance" = "1" ]; then
+        info_2 "检测到 qBittorrent 已安装,复用现有二进制..."
+        echo " 完成"
+    else
         info_2 "下载 qBittorrent 4.3.9..."
         wget -q $QB_URL -O /tmp/qbittorrent-nox
         if [ $? -ne 0 ] || [ ! -f /tmp/qbittorrent-nox ]; then
@@ -285,20 +348,13 @@ install_qBittorrent_() {
         chmod +x /tmp/qbittorrent-nox
         mv /tmp/qbittorrent-nox /usr/bin/qbittorrent-nox
         echo " 完成"
-        
-        # 重启所有之前停止的服务
-        for service in $(systemctl list-units --all 'qbittorrent-nox@*' --no-legend | awk '{print $1}'); do
-            service_user=$(echo "$service" | sed 's/qbittorrent-nox@\(.*\)\.service/\1/')
-            if [ "$service_user" != "$username" ]; then
-                systemctl start "$service" 2>/dev/null || true
-            fi
-        done
     fi
 
     info_2 "下载密码生成器..."
     wget -q $PASS_GEN_URL -O /tmp/qb_password_gen
     if [ $? -ne 0 ] || [ ! -f /tmp/qb_password_gen ]; then
         fail "密码生成器下载失败"
+        rm /usr/bin/qbittorrent-nox
         return 1
     fi
     chmod +x /tmp/qb_password_gen
@@ -308,9 +364,7 @@ install_qBittorrent_() {
     mkdir -p /home/$username/.config/qBittorrent
     chown -R $username:$username /home/$username/
 
-    # 只在 service 文件不存在时创建
-    if [ ! -f /etc/systemd/system/qbittorrent-nox@.service ]; then
-        cat > /etc/systemd/system/qbittorrent-nox@.service << 'EOF'
+    cat > /etc/systemd/system/qbittorrent-nox@.service << 'EOF'
 [Unit]
 Description=qBittorrent
 After=network.target
@@ -329,7 +383,6 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target
 EOF
-    fi
 
     local disk_name=$(lsblk -nd --output NAME 2>/dev/null | grep -v '^md' | head -n1)
     local disktype=1
@@ -392,30 +445,13 @@ EOF
     systemctl start qbittorrent-nox@$username
 
     sleep 3
-    
-    # 增强的状态检查
     if ! systemctl is-active --quiet qbittorrent-nox@$username; then
         fail "qBittorrent 启动失败"
-        warn "查看详细日志: journalctl -u qbittorrent-nox@$username -n 50"
-        warn "查看服务状态: systemctl status qbittorrent-nox@$username"
         return 1
     fi
-    
-    # 验证进程是否真正运行
-    local retry_count=0
-    while [ $retry_count -lt 5 ]; do
-        if pgrep -u $username -f "qbittorrent-nox" > /dev/null; then
-            echo " 完成"
-            return 0
-        fi
-        sleep 1
-        retry_count=$((retry_count + 1))
-    done
-    
-    # 如果5秒后还没有进程，报错
-    fail "qBittorrent 进程未找到"
-    warn "查看详细日志: journalctl -u qbittorrent-nox@$username -n 50"
-    return 1
+    echo " 完成"
+
+    return 0
 }
 
 # ===== Vertex 安装函数 =====
@@ -423,15 +459,18 @@ install_vertex_() {
     local username=$1
     local password=$2
     local vertex_port=$3
+    local qb_port=$4
+    local vertex_name=$5
+    local vertex_data_dir=$6
 
     if ! install_docker_; then
         return 1
     fi
 
-    if docker ps -a 2>/dev/null | grep -q vertex; then
-        warn "Vertex 已安装,正在删除旧容器..."
-        docker stop vertex 2>/dev/null || true
-        docker rm vertex 2>/dev/null || true
+    if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qw "$vertex_name"; then
+        warn "Vertex 容器已存在,正在删除旧容器..."
+        docker stop "$vertex_name" 2>/dev/null || true
+        docker rm "$vertex_name" 2>/dev/null || true
     fi
 
     info_2 "安装依赖..."
@@ -448,59 +487,68 @@ install_vertex_() {
 
     timedatectl set-timezone Asia/Shanghai 2>/dev/null || warn "时区设置失败,但继续..."
 
-    mkdir -p /root/vertex
-    chmod 755 /root/vertex
+    mkdir -p "$vertex_data_dir"
+    chmod 755 "$vertex_data_dir"
 
     info_2 "拉取 Vertex 镜像..."
     docker pull $VERTEX_DOCKER_IMAGE >/dev/null 2>&1
     echo " 完成"
 
     info_2 "启动 Vertex 容器..."
-    docker run -d --name vertex --restart unless-stopped \
-        -v /root/vertex:/vertex \
-        -p $vertex_port:3000 \
+    docker run -d --name "$vertex_name" --restart unless-stopped \
+        -v "$vertex_data_dir":/vertex \
+        -p "$vertex_port":3000 \
         -e TZ=Asia/Shanghai \
         $VERTEX_DOCKER_IMAGE >/dev/null 2>&1
 
     sleep 5
 
-    if ! [ "$(docker container inspect -f '{{.State.Status}}' vertex 2>/dev/null)" = "running" ]; then
+    if ! [ "$(docker container inspect -f '{{.State.Status}}' "$vertex_name" 2>/dev/null)" = "running" ]; then
         fail "Vertex 启动失败"
         return 1
     fi
     echo " 完成"
 
-    # 恢复自定义 data 目录 (如果提供了下载链接)
+    # 🆕 ===== 恢复自定义 data 目录 (如果提供了下载链接) =====
     if [[ -n "$vertex_data_url" ]]; then
         info_2 "检测到自定义 data 配置,正在恢复..."
         
-        docker stop vertex >/dev/null 2>&1
+        # 停止 Vertex 容器
+        docker stop "$vertex_name" >/dev/null 2>&1
         sleep 3
         
+        # 下载 data.zip
         wget -q "$vertex_data_url" -O /tmp/vertex_data.zip 2>/dev/null
         if [ $? -ne 0 ] || [ ! -f /tmp/vertex_data.zip ]; then
             warn "data 目录下载失败,使用默认配置"
         else
+            # 构建解压命令（覆盖模式）
             local unzip_cmd="unzip -o -q"
             if [[ -n "$vertex_data_pw" ]]; then
                 unzip_cmd="unzip -P '$vertex_data_pw' -o -q"
             fi
 
-            eval $unzip_cmd /tmp/vertex_data.zip -d /root/vertex/ >/dev/null 2>&1
+            # 解压并覆盖到 /root/vertex/ 目录
+            eval $unzip_cmd /tmp/vertex_data.zip -d "$vertex_data_dir"/ >/dev/null 2>&1
             
-            if [ $? -eq 0 ] && [ -d /root/vertex/data ]; then
+            # 判断解压是否成功
+            if [ $? -eq 0 ] && [ -d "$vertex_data_dir/data" ]; then
                 rm -f /tmp/vertex_data.zip
                 echo " 完成"
                 
-                if [ -d "/root/vertex/data/client" ]; then
+                # 自动查找并修改 qBittorrent 客户端配置文件
+                if [ -d "$vertex_data_dir/data/client" ]; then
                     info_2 "更新 qBittorrent 客户端配置..."
                     
+                    # 查找所有 type 为 qBittorrent 的客户端配置文件
                     local updated_count=0
-                    for client_file in /root/vertex/data/client/*.json; do
+                    for client_file in "$vertex_data_dir"/data/client/*.json; do
                         if [ -f "$client_file" ]; then
+                            # 检查是否为 qBittorrent 类型的客户端
                             local client_type=$(jq -r '.type // empty' "$client_file" 2>/dev/null)
                             
                             if [ "$client_type" = "qBittorrent" ]; then
+                                # 使用 jq 更新配置
                                 if command -v jq >/dev/null 2>&1; then
                                     jq --arg url "http://127.0.0.1:$qb_port" \
                                        --arg port "$qb_port" \
@@ -530,33 +578,37 @@ install_vertex_() {
             fi
         fi
         
-        docker start vertex >/dev/null 2>&1
+        # 重新启动容器
+        docker start "$vertex_name" >/dev/null 2>&1
         sleep 5
         
-        if ! [ "$(docker container inspect -f '{{.State.Status}}' vertex 2>/dev/null)" = "running" ]; then
+        if ! [ "$(docker container inspect -f '{{.State.Status}}' "$vertex_name" 2>/dev/null)" = "running" ]; then
             fail "Vertex 重启失败"
             return 1
         fi
     fi
+    # 🆕 ===== data 目录恢复结束 =====
 
     info_2 "配置 Vertex 用户..."
-    docker stop vertex >/dev/null 2>&1
+    docker stop "$vertex_name" >/dev/null 2>&1
     sleep 5
 
-    if ! [ "$(docker container inspect -f '{{.State.Status}}' vertex 2>/dev/null)" = "exited" ]; then
+    if ! [ "$(docker container inspect -f '{{.State.Status}}' "$vertex_name" 2>/dev/null)" = "exited" ]; then
         fail "Vertex 停止失败"
         return 1
     fi
 
     vertex_pass=$(echo -n $password | md5sum | awk '{print $1}')
     
-    if [ -f /root/vertex/data/setting.json ]; then
+    # 使用 jq 合并 JSON，保留原有配置
+    if [ -f "$vertex_data_dir/data/setting.json" ]; then
         jq --arg user "$username" --arg pass "$vertex_pass" \
            '.username = $user | .password = $pass' \
-           /root/vertex/data/setting.json > /tmp/setting.json.tmp && \
-           mv /tmp/setting.json.tmp /root/vertex/data/setting.json
+           "$vertex_data_dir/data/setting.json" > /tmp/setting.json.tmp && \
+           mv /tmp/setting.json.tmp "$vertex_data_dir/data/setting.json"
     else
-        cat > /root/vertex/data/setting.json << EOF
+        # 如果文件不存在，创建新文件
+        cat > "$vertex_data_dir/data/setting.json" << EOF
 {
   "username": "$username",
   "password": "$vertex_pass"
@@ -564,10 +616,10 @@ install_vertex_() {
 EOF
     fi
 
-    docker start vertex >/dev/null 2>&1
+    docker start "$vertex_name" >/dev/null 2>&1
     sleep 5
 
-    if ! [ "$(docker container inspect -f '{{.State.Status}}' vertex 2>/dev/null)" = "running" ]; then
+    if ! [ "$(docker container inspect -f '{{.State.Status}}' "$vertex_name" 2>/dev/null)" = "running" ]; then
         fail "Vertex 重启失败"
         return 1
     fi
@@ -581,56 +633,68 @@ install_filebrowser_() {
     local username=$1
     local password=$2
     local fb_port=$3
+    local fb_name=$4
+    local fb_data_dir=$5
 
     if ! install_docker_; then
         return 1
     fi
 
-    if docker ps -a 2>/dev/null | grep -q filebrowser; then
-        warn "FileBrowser 已安装,正在删除旧容器..."
-        docker stop filebrowser 2>/dev/null || true
-        docker rm filebrowser 2>/dev/null || true
+    if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qw "$fb_name"; then
+        warn "FileBrowser 容器已存在,正在删除旧容器..."
+        docker stop "$fb_name" 2>/dev/null || true
+        docker rm "$fb_name" 2>/dev/null || true
     fi
 
+    # 创建配置目录并设置正确权限 (UID 1000:GID 1000)
     info_2 "配置 FileBrowser 目录..."
-    mkdir -p /home/$username/.filebrowser
-    chown -R 1000:1000 /home/$username/.filebrowser
-    chmod 755 /home/$username/.filebrowser
+    mkdir -p "$fb_data_dir"
+    chown -R 1000:1000 "$fb_data_dir"
+    chmod 755 "$fb_data_dir"
     echo " 完成"
 
+    # 🆕 设置 qBittorrent 目录权限,确保 FileBrowser 可以读写
     info_2 "设置数据目录权限..."
+    # 保持用户所有权,添加 1000 为组成员,设置组写权限
     chown -R $username:$username /home/$username/qbittorrent
     chmod -R 775 /home/$username/qbittorrent
+    # 将 qBittorrent 目录的组改为 1000,这样 FileBrowser (UID 1000) 也有完整权限
     chgrp -R 1000 /home/$username/qbittorrent
     echo " 完成"
 
+    # 拉取镜像 (静默)
     info_2 "拉取 FileBrowser 镜像..."
     docker pull $FILEBROWSER_DOCKER_IMAGE >/dev/null 2>&1
     echo " 完成"
 
+    # 启动 FileBrowser
     info_2 "启动 FileBrowser 容器..."
-    docker run -d --name filebrowser --restart unless-stopped \
+    docker run -d --name "$fb_name" --restart unless-stopped \
         -v /home/$username/qbittorrent:/srv \
-        -v /home/$username/.filebrowser:/database \
-        -p $fb_port:80 \
+        -v "$fb_data_dir":/database \
+        -p "$fb_port":80 \
         $FILEBROWSER_DOCKER_IMAGE >/dev/null 2>&1
 
     sleep 5
 
-    if ! [ "$(docker container inspect -f '{{.State.Status}}' filebrowser 2>/dev/null)" = "running" ]; then
+    # 验证启动
+    if ! [ "$(docker container inspect -f '{{.State.Status}}' "$fb_name" 2>/dev/null)" = "running" ]; then
         fail "FileBrowser 启动失败"
         return 1
     fi
     echo " 完成"
 
+    # 🆕 修改默认用户名密码 (正确方法)
     info_2 "配置 FileBrowser 用户..."
-    sleep 5
+    sleep 5  # 等待数据库初始化
     
-    docker stop filebrowser >/dev/null 2>&1
+    # 停止容器以避免 SQLite 锁冲突
+    docker stop "$fb_name" >/dev/null 2>&1
     sleep 3
     
+    # 使用临时容器修改密码 (必须指定 --database 参数)
     docker run --rm \
-        -v /home/$username/.filebrowser/:/database/ \
+        -v "$fb_data_dir"/:/database/ \
         $FILEBROWSER_DOCKER_IMAGE \
         users update admin \
         --username="$username" \
@@ -645,10 +709,11 @@ install_filebrowser_() {
         echo ""
     fi
     
-    docker start filebrowser >/dev/null 2>&1
+    # 启动容器
+    docker start "$fb_name" >/dev/null 2>&1
     sleep 3
 
-    if ! [ "$(docker container inspect -f '{{.State.Status}}' filebrowser 2>/dev/null)" = "running" ]; then
+    if ! [ "$(docker container inspect -f '{{.State.Status}}' "$fb_name" 2>/dev/null)" = "running" ]; then
         fail "FileBrowser 重启失败"
         return 1
     fi
@@ -761,21 +826,12 @@ set_file_open_limit_() {
         return 1
     fi
     
-    # 检查该用户是否已配置
-    if grep -q "^$username.*nofile" /etc/security/limits.conf 2>/dev/null; then
+    if grep -q "## qBittorrent 文件打开限制" /etc/security/limits.conf 2>/dev/null; then
         return 0
     fi
     
-    # 如果是第一次添加，添加标记
-    if ! grep -q "## qBittorrent 文件打开限制" /etc/security/limits.conf 2>/dev/null; then
-        cat << EOF >> /etc/security/limits.conf
-
-## qBittorrent 文件打开限制
-EOF
-    fi
-    
-    # 追加该用户的配置
     cat << EOF >> /etc/security/limits.conf
+## qBittorrent 文件打开限制
 $username hard nofile 1048576
 $username soft nofile 1048576
 EOF
@@ -783,11 +839,6 @@ EOF
 }
 
 kernel_settings_() {
-    # 检查是否已经优化过
-    if grep -q "# qBittorrent 内核优化" /etc/sysctl.conf 2>/dev/null; then
-        return 0
-    fi
-    
     local memory_size=$(grep MemTotal /proc/meminfo 2>/dev/null | awk '{print $2}')
     
     if [ -z "$memory_size" ]; then
@@ -850,10 +901,8 @@ kernel_settings_() {
     
     modprobe tcp_bbr 2>/dev/null || true
     
-    # 使用 >> 追加而非 > 覆盖
-    cat >> /etc/sysctl.conf << EOF
-
-# qBittorrent 内核优化 ($(date +%Y-%m-%d))
+    cat > /etc/sysctl.d/99-qbittorrent.conf << EOF
+# qBittorrent 内核优化
 
 # 进程调度
 kernel.pid_max = 4194303
@@ -942,7 +991,7 @@ net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
 EOF
     
-    sysctl -p >/dev/null 2>&1 || true
+    sysctl -p /etc/sysctl.d/99-qbittorrent.conf >/dev/null 2>&1 || true
     
     local current_cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null)
     if [ "$current_cc" = "bbr" ]; then
@@ -961,6 +1010,7 @@ uninstall_all() {
     # 1. 停止并删除 systemd 服务
     info "清理 systemd 服务..."
     
+    # 停止 qBittorrent 服务（所有用户）并收集用户名
     detected_users=()
     for service in $(systemctl list-units --all 'qbittorrent-nox@*' --no-legend | awk '{print $1}'); do
         username=$(echo "$service" | sed 's/qbittorrent-nox@\(.*\)\.service/\1/')
@@ -971,11 +1021,13 @@ uninstall_all() {
         echo " 完成"
     done
     
+    # 删除 qBittorrent service 文件
     if [ -f /etc/systemd/system/qbittorrent-nox@.service ]; then
         rm -f /etc/systemd/system/qbittorrent-nox@.service
         info "✓ 已删除 qBittorrent service 文件"
     fi
     
+    # 停止并删除开机启动脚本服务
     if systemctl is-enabled boot-script.service >/dev/null 2>&1; then
         systemctl stop boot-script.service >/dev/null 2>&1 || true
         systemctl disable boot-script.service >/dev/null 2>&1 || true
@@ -995,10 +1047,13 @@ uninstall_all() {
     if command -v docker >/dev/null 2>&1; then
         info "清理 Docker 容器和镜像..."
         
-        if docker ps -a 2>/dev/null | grep -q vertex; then
+        # Vertex
+        if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q '^vertex'; then
             info_2 "删除 Vertex 容器..."
-            docker stop vertex >/dev/null 2>&1 || true
-            docker rm vertex >/dev/null 2>&1 || true
+            for c in $(docker ps -a --format '{{.Names}}' 2>/dev/null | grep -E '^vertex'); do
+                docker stop "$c" >/dev/null 2>&1 || true
+                docker rm "$c" >/dev/null 2>&1 || true
+            done
             echo " 完成"
         fi
         
@@ -1008,10 +1063,13 @@ uninstall_all() {
             echo " 完成"
         fi
         
-        if docker ps -a 2>/dev/null | grep -q filebrowser; then
+        # FileBrowser
+        if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q '^filebrowser'; then
             info_2 "删除 FileBrowser 容器..."
-            docker stop filebrowser >/dev/null 2>&1 || true
-            docker rm filebrowser >/dev/null 2>&1 || true
+            for c in $(docker ps -a --format '{{.Names}}' 2>/dev/null | grep -E '^filebrowser'); do
+                docker stop "$c" >/dev/null 2>&1 || true
+                docker rm "$c" >/dev/null 2>&1 || true
+            done
             echo " 完成"
         fi
         
@@ -1021,6 +1079,7 @@ uninstall_all() {
             echo " 完成"
         fi
         
+        # 清理未使用的 Docker 资源
         info_2 "清理未使用的 Docker 资源..."
         docker system prune -af --volumes >/dev/null 2>&1 || true
         echo " 完成"
@@ -1037,6 +1096,7 @@ uninstall_all() {
         info "✓ 已删除 qBittorrent 二进制文件"
     fi
     
+    # 删除临时文件
     rm -f /tmp/qbittorrent-nox 2>/dev/null || true
     rm -f /tmp/qb_password_gen 2>/dev/null || true
     echo ""
@@ -1044,7 +1104,9 @@ uninstall_all() {
     # 4. 清理用户数据目录
     info "清理用户数据..."
     
+    # 使用检测到的用户列表
     if [ ${#detected_users[@]} -eq 0 ]; then
+        # 如果没有检测到服务中的用户，扫描 /home 目录
         for user_home in /home/*; do
             if [ -d "$user_home/.config/qBittorrent" ] || [ -d "$user_home/qbittorrent" ]; then
                 username=$(basename "$user_home")
@@ -1056,12 +1118,14 @@ uninstall_all() {
     for username in "${detected_users[@]}"; do
         user_home="/home/$username"
         
+        # 清理 qBittorrent 配置
         if [ -d "$user_home/.config/qBittorrent" ]; then
             info_2 "删除 $username 的 qBittorrent 配置..."
             rm -rf "$user_home/.config/qBittorrent"
             echo " 完成"
         fi
         
+        # 询问是否删除下载数据
         if [ -d "$user_home/qbittorrent" ]; then
             need_input "是否删除 $username 的下载数据? ($user_home/qbittorrent) [y/N]:"
             read -r confirm
@@ -1073,52 +1137,55 @@ uninstall_all() {
             fi
         fi
         
-        if [ -d "$user_home/.filebrowser" ]; then
-            info_2 "删除 $username 的 FileBrowser 配置..."
-            rm -rf "$user_home/.filebrowser"
-            echo " 完成"
-        fi
+        # 清理 FileBrowser 配置
+        for fb_dir in "$user_home"/.filebrowser*; do
+            if [ -d "$fb_dir" ]; then
+                info_2 "删除 $username 的 FileBrowser 配置: $fb_dir"
+                rm -rf "$fb_dir"
+                echo " 完成"
+            fi
+        done
     done
     echo ""
     
-    # 5. 清理 Vertex 数据
-    if [ -d /root/vertex ]; then
-        info_2 "删除 Vertex 数据..."
-        rm -rf /root/vertex
-        echo " 完成"
-        echo ""
-    fi
+    # 5. 清理 Vertex 数据（不询问，直接删除）
+    for vertex_dir in /root/vertex*; do
+        if [ -d "$vertex_dir" ]; then
+            info_2 "删除 Vertex 数据: $vertex_dir"
+            rm -rf "$vertex_dir"
+            echo " 完成"
+            echo ""
+        fi
+    done
     
     # 6. 恢复系统配置文件
     info "恢复系统配置..."
     
-    if [ -f /etc/sysctl.conf ]; then
-        if grep -q "# qBittorrent 内核优化" /etc/sysctl.conf 2>/dev/null; then
-            info_2 "恢复 sysctl.conf..."
-            cp /etc/sysctl.conf /etc/sysctl.conf.bak.$(date +%s)
-            sed -i '/# qBittorrent 内核优化/,/^$/d' /etc/sysctl.conf
-            sysctl -p >/dev/null 2>&1 || true
-            echo " 完成"
-        fi
+    # 恢复 sysctl 配置
+    if [ -f /etc/sysctl.d/99-qbittorrent.conf ]; then
+        info_2 "恢复 sysctl 配置..."
+        rm -f /etc/sysctl.d/99-qbittorrent.conf
+        sysctl --system >/dev/null 2>&1 || true
+        echo " 完成"
     fi
     
+    # 恢复 limits.conf
     if [ -f /etc/security/limits.conf ]; then
         if grep -q "## qBittorrent 文件打开限制" /etc/security/limits.conf 2>/dev/null; then
             info_2 "恢复 limits.conf..."
             cp /etc/security/limits.conf /etc/security/limits.conf.bak.$(date +%s)
-            sed -i '/## qBittorrent 文件打开限制/d' /etc/security/limits.conf
-            for username in "${detected_users[@]}"; do
-                sed -i "/^$username.*nofile/d" /etc/security/limits.conf
-            done
+            sed -i '/## qBittorrent 文件打开限制/,+2d' /etc/security/limits.conf
             echo " 完成"
         fi
     fi
+    rm -f /etc/ptbox_optimized 2>/dev/null || true
     echo ""
     
-    # 7. 卸载安装的软件包
+    # 7. 卸载安装的软件包（不询问，直接卸载）
     info "卸载已安装的软件包..."
     wait_for_dpkg_lock
     
+    # 卸载 Docker
     if command -v docker >/dev/null 2>&1; then
         info_2 "卸载 Docker..."
         systemctl stop docker >/dev/null 2>&1 || true
@@ -1132,6 +1199,7 @@ uninstall_all() {
         echo " 完成"
     fi
     
+    # 卸载其他工具
     for pkg in jq unzip ethtool net-tools tuned sysstat psmisc apparmor apparmor-utils; do
         if dpkg -l | grep -qw "^ii.*$pkg" 2>/dev/null; then
             info_2 "卸载 $pkg..."
@@ -1140,6 +1208,7 @@ uninstall_all() {
         fi
     done
     
+    # 清理残留依赖
     info_2 "清理残留依赖..."
     DEBIAN_FRONTEND=noninteractive apt-get -y -qq autoremove >/dev/null 2>&1 || true
     DEBIAN_FRONTEND=noninteractive apt-get -y -qq autoclean >/dev/null 2>&1 || true
@@ -1149,27 +1218,24 @@ uninstall_all() {
     # 8. 清理日志和临时文件
     info "清理日志和临时文件..."
     
+    # 清理安装日志
     if [ -f /var/log/qb_install.log ]; then
         rm -f /var/log/qb_install.log
         info "✓ 已删除安装日志"
     fi
     
+    # 清理临时文件
     rm -f /tmp/get-docker.sh 2>/dev/null || true
     rm -f /tmp/setting.json.tmp 2>/dev/null || true
     rm -f /tmp/vertex_data.zip 2>/dev/null || true
     
+    # 清理 apt 缓存
     info_2 "清理 apt 缓存..."
     apt-get clean >/dev/null 2>&1 || true
     echo " 完成"
     echo ""
     
-    # 9. 删除优化标记文件
-    if [ -f "$OPTIMIZATION_MARKER" ]; then
-        rm -f "$OPTIMIZATION_MARKER"
-        info "✓ 已删除系统优化标记"
-    fi
-    
-    # 10. 删除脚本创建的用户
+    # 9. 删除脚本创建的用户（自动检测）
     if [ ${#detected_users[@]} -gt 0 ]; then
         info "检测到以下用户: ${detected_users[*]}"
         need_input "是否删除这些用户? [y/N]:"
@@ -1189,7 +1255,7 @@ uninstall_all() {
         echo ""
     fi
     
-    # 11. 卸载内核模块
+    # 10. 卸载内核模块
     info "卸载内核模块..."
     if lsmod | grep -q tcp_bbr; then
         info_2 "卸载 tcp_bbr 模块..."
@@ -1213,8 +1279,10 @@ if [[ "$1" == "--uninstall" ]]; then
     uninstall_all
 fi
 
+
 # ===== 参数解析 =====
-while getopts "u:p:c:q:l:vfod:k:h" opt; do
+custom_ports=0
+while getopts "u:p:c:q:l:vfod:k:th" opt; do
     case ${opt} in
         u) username=${OPTARG} ;;
         p) password=${OPTARG} ;;
@@ -1233,57 +1301,18 @@ while getopts "u:p:c:q:l:vfod:k:h" opt; do
         f) filebrowser_install=1 ;;
         d) vertex_data_url=${OPTARG} ;;
         k) vertex_data_pw=${OPTARG} ;;
+        t) optimize_enabled=1 ;;
         o)
-            need_input "请输入 qBittorrent 端口:"
-            read qb_port
-            while ! [[ "$qb_port" =~ ^[0-9]+$ ]] || is_port_in_use $qb_port; do
-                if ! [[ "$qb_port" =~ ^[0-9]+$ ]]; then
-                    warn "端口必须是数字"
-                else
-                    warn "端口 $qb_port 已被占用"
-                fi
-                need_input "请输入 qBittorrent 端口:"
-                read qb_port
-            done
-            
-            need_input "请输入 qBittorrent 传入端口:"
-            read qb_incoming_port
-            while ! [[ "$qb_incoming_port" =~ ^[0-9]+$ ]] || is_port_in_use $qb_incoming_port; do
-                if ! [[ "$qb_incoming_port" =~ ^[0-9]+$ ]]; then
-                    warn "端口必须是数字"
-                else
-                    warn "端口 $qb_incoming_port 已被占用"
-                fi
-                need_input "请输入 qBittorrent 传入端口:"
-                read qb_incoming_port
-            done
+            custom_ports=1
+            prompt_for_port "qBittorrent WebUI" qb_port
+            prompt_for_port "qBittorrent 传入" qb_incoming_port
             
             if [[ -n "$vertex_install" ]]; then
-                need_input "请输入 Vertex 端口:"
-                read vertex_port
-                while ! [[ "$vertex_port" =~ ^[0-9]+$ ]] || is_port_in_use $vertex_port; do
-                    if ! [[ "$vertex_port" =~ ^[0-9]+$ ]]; then
-                        warn "端口必须是数字"
-                    else
-                        warn "端口 $vertex_port 已被占用"
-                    fi
-                    need_input "请输入 Vertex 端口:"
-                    read vertex_port
-                done
+                prompt_for_port "Vertex" vertex_port
             fi
             
             if [[ -n "$filebrowser_install" ]]; then
-                need_input "请输入 FileBrowser 端口:"
-                read filebrowser_port
-                while ! [[ "$filebrowser_port" =~ ^[0-9]+$ ]] || is_port_in_use $filebrowser_port; do
-                    if ! [[ "$filebrowser_port" =~ ^[0-9]+$ ]]; then
-                        warn "端口必须是数字"
-                    else
-                        warn "端口 $filebrowser_port 已被占用"
-                    fi
-                    need_input "请输入 FileBrowser 端口:"
-                    read filebrowser_port
-                done
+                prompt_for_port "FileBrowser" filebrowser_port
             fi
             ;;
         h)
@@ -1301,7 +1330,9 @@ while getopts "u:p:c:q:l:vfod:k:h" opt; do
             boring_text "  -v : 安装 Vertex"
             boring_text "  -f : 安装 FileBrowser"
             boring_text "  -d : Vertex data 目录 ZIP 下载链接 (可选)"
+            boring_text "  -k : Vertex data ZIP 解压密码 (可选)"
             boring_text "  -o : 自定义端口"
+            boring_text "  -t : 启用系统优化"
             boring_text "  -h : 显示帮助"
             seperator
             info "卸载方法:"
@@ -1378,6 +1409,7 @@ if [ -z "$password" ]; then
     read password
 fi
 
+# 🆕 添加密码长度验证
 while [ ${#password} -lt 12 ]; do
     fail "密码长度不足! 当前长度: ${#password} 位,至少 12 位"
     need_input "请重新输入密码 (至少12位):"
@@ -1397,37 +1429,95 @@ if [ -z "$qb_cache" ]; then
     qb_cache=$cache
 fi
 
-# 生成随机端口时检查占用
-if [ -z "$qb_port" ]; then
-    qb_port=$(generate_random_port)
-    if [ $? -ne 0 ]; then
-        fail_exit "无法生成可用的 qBittorrent WebUI 端口"
+if [ "$custom_ports" = "1" ]; then
+    if [[ -n "$vertex_install" ]] && [ -z "$vertex_port" ]; then
+        prompt_for_port "Vertex" vertex_port
     fi
+    if [[ -n "$filebrowser_install" ]] && [ -z "$filebrowser_port" ]; then
+        prompt_for_port "FileBrowser" filebrowser_port
+    fi
+fi
+
+qb_multi_instance=0
+vertex_name="vertex"
+vertex_data_dir="/root/vertex"
+filebrowser_name="filebrowser"
+OPTIM_MARKER="/etc/ptbox_optimized"
+
+if [ -f /usr/bin/qbittorrent-nox ] || systemctl list-units --all 'qbittorrent-nox@*' --no-legend 2>/dev/null | grep -q .; then
+    need_input "检测到已安装 qBittorrent,是否新增实例? [Y/n]:"
+    read -r confirm
+    if [[ ! "$confirm" =~ ^[Nn]$ ]]; then
+        qb_multi_instance=1
+    fi
+fi
+
+if [ "$qb_multi_instance" = "1" ]; then
+    while [ -d "/home/$username/.config/qBittorrent" ] || systemctl list-units --all "qbittorrent-nox@$username.service" --no-legend 2>/dev/null | grep -q .; do
+        warn "用户 $username 已存在 qBittorrent 配置"
+        need_input "请输入新的用户名用于新增实例:"
+        read username
+    done
+fi
+
+filebrowser_data_dir="/home/$username/.filebrowser"
+
+if [ -z "$qb_port" ]; then
+    qb_port=$(pick_free_port)
+    if [ -z "$qb_port" ]; then
+        fail_exit "无法找到可用的 qBittorrent WebUI 端口"
+    fi
+    register_port "$qb_port"
     info "✓ qBittorrent WebUI 端口: $qb_port"
 fi
 
 if [ -z "$qb_incoming_port" ]; then
-    qb_incoming_port=$(generate_random_port)
-    if [ $? -ne 0 ]; then
-        fail_exit "无法生成可用的 qBittorrent 传入端口"
+    qb_incoming_port=$(pick_free_port)
+    if [ -z "$qb_incoming_port" ]; then
+        fail_exit "无法找到可用的 qBittorrent 传入端口"
     fi
+    register_port "$qb_incoming_port"
     info "✓ qBittorrent 传入端口: $qb_incoming_port"
 fi
 
 if [[ -n "$vertex_install" ]] && [ -z "$vertex_port" ]; then
-    vertex_port=$(generate_random_port)
-    if [ $? -ne 0 ]; then
-        fail_exit "无法生成可用的 Vertex 端口"
+    vertex_port=$(pick_free_port)
+    if [ -z "$vertex_port" ]; then
+        fail_exit "无法找到可用的 Vertex 端口"
     fi
+    register_port "$vertex_port"
     info "✓ Vertex 端口: $vertex_port"
 fi
 
 if [[ -n "$filebrowser_install" ]] && [ -z "$filebrowser_port" ]; then
-    filebrowser_port=$(generate_random_port)
-    if [ $? -ne 0 ]; then
-        fail_exit "无法生成可用的 FileBrowser 端口"
+    filebrowser_port=$(pick_free_port)
+    if [ -z "$filebrowser_port" ]; then
+        fail_exit "无法找到可用的 FileBrowser 端口"
     fi
+    register_port "$filebrowser_port"
     info "✓ FileBrowser 端口: $filebrowser_port"
+fi
+
+if [[ -n "$vertex_install" ]] && command -v docker >/dev/null 2>&1; then
+    if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qw "$vertex_name"; then
+        need_input "检测到 Vertex 已安装,是否新增实例? [Y/n]:"
+        read -r confirm
+        if [[ ! "$confirm" =~ ^[Nn]$ ]]; then
+            vertex_name=$(prompt_instance_name "vertex" "/root/")
+            vertex_data_dir="/root/$vertex_name"
+        fi
+    fi
+fi
+
+if [[ -n "$filebrowser_install" ]] && command -v docker >/dev/null 2>&1; then
+    if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qw "$filebrowser_name"; then
+        need_input "检测到 FileBrowser 已安装,是否新增实例? [Y/n]:"
+        read -r confirm
+        if [[ ! "$confirm" =~ ^[Nn]$ ]]; then
+            filebrowser_name=$(prompt_instance_name "filebrowser" "/home/$username/.")
+            filebrowser_data_dir="/home/$username/.${filebrowser_name}"
+        fi
+    fi
 fi
 
 if ! id -u $username > /dev/null 2>&1; then
@@ -1455,7 +1545,7 @@ seperator
 info "开始安装 qBittorrent 4.3.9"
 echo -e "\n"
 
-if install_qBittorrent_ $username $password $qb_cache $qb_port $qb_incoming_port; then
+if install_qBittorrent_ $username $password $qb_cache $qb_port $qb_incoming_port $qb_multi_instance; then
     info "✓ qBittorrent 安装成功"
     qb_install_success=1
 else
@@ -1469,7 +1559,7 @@ if [[ -n "$vertex_install" ]]; then
     info "开始安装 Vertex"
     echo -e "\n"
     
-    if install_vertex_ $username $password $vertex_port; then
+    if install_vertex_ $username $password $vertex_port $qb_port $vertex_name $vertex_data_dir; then
         info "✓ Vertex 安装成功"
         vertex_install_success=1
     else
@@ -1484,7 +1574,7 @@ if [[ -n "$filebrowser_install" ]]; then
     info "开始安装 FileBrowser"
     echo -e "\n"
     
-    if install_filebrowser_ $username $password $filebrowser_port; then
+    if install_filebrowser_ $username $password $filebrowser_port $filebrowser_name $filebrowser_data_dir; then
         info "✓ FileBrowser 安装成功"
         filebrowser_install_success=1
     else
@@ -1494,86 +1584,77 @@ if [[ -n "$filebrowser_install" ]]; then
     seperator
 fi
 
-# ===== 系统优化 (方案B: 使用优化标记) =====
-need_system_optimization=1
-
-if [ -f "$OPTIMIZATION_MARKER" ]; then
-    info "检测到系统已优化 ($(cat $OPTIMIZATION_MARKER))"
-    info "✓ 跳过系统优化步骤"
-    need_system_optimization=0
-    seperator
-fi
-
-if [ $need_system_optimization -eq 1 ]; then
-    info "开始系统优化 (首次安装)"
-    echo -e "\n"
-
-    echo -n "tuned..."
-    if tuned_; then
-        echo "✓"
+# ===== 系统优化 (简化输出) =====
+if [[ -n "$optimize_enabled" ]]; then
+    if [ -f "$OPTIM_MARKER" ] || [ -f /etc/sysctl.d/99-qbittorrent.conf ]; then
+        info "检测到已优化,跳过系统优化"
+        seperator
     else
-        echo "✗ (可忽略)"
-    fi
+        info "开始系统优化"
+        echo -e "\n"
 
-    echo -n "txqueuelen..."
-    if set_txqueuelen_; then
-        echo "✓"
-    else
-        echo "✗ (可忽略)"
-    fi
-
-    echo -n "文件打开限制..."
-    if set_file_open_limit_; then
-        echo "✓"
-    else
-        echo "✗ (可忽略)"
-    fi
-
-    systemd-detect-virt > /dev/null 2>&1
-    virt_result=$?
-    if [ $virt_result -eq 0 ]; then
-        warn "检测到虚拟化环境,跳过部分硬件优化"
-    else
-        echo -n "磁盘调度器..."
-        if set_disk_scheduler_; then
+        echo -n "tuned..."
+        if tuned_; then
             echo "✓"
         else
             echo "✗ (可忽略)"
         fi
-        
-        echo -n "Ring Buffer..."
-        if set_ring_buffer_; then
+
+        echo -n "txqueuelen..."
+        if set_txqueuelen_; then
             echo "✓"
         else
             echo "✗ (可忽略)"
         fi
-    fi
 
-    echo -n "初始拥塞窗口..."
-    if set_initial_congestion_window_; then
-        echo "✓"
-    else
-        echo "✗ (可忽略)"
-    fi
+        echo -n "文件打开限制..."
+        if set_file_open_limit_; then
+            echo "✓"
+        else
+            echo "✗ (可忽略)"
+        fi
 
-    echo -n "内核参数 (BBR)..."
-    if kernel_settings_; then
-        echo "✓"
-    else
-        echo "✗ (BBR 不可用)"
-    fi
+        systemd-detect-virt > /dev/null 2>&1
+        virt_result=$?
+        if [ $virt_result -eq 0 ]; then
+            warn "检测到虚拟化环境,跳过部分硬件优化"
+        else
+            echo -n "磁盘调度器..."
+            if set_disk_scheduler_; then
+                echo "✓"
+            else
+                echo "✗ (可忽略)"
+            fi
+            
+            echo -n "Ring Buffer..."
+            if set_ring_buffer_; then
+                echo "✓"
+            else
+                echo "✗ (可忽略)"
+            fi
+        fi
 
-    # 创建优化标记文件
-    echo "优化时间: $(date '+%Y-%m-%d %H:%M:%S')" > "$OPTIMIZATION_MARKER"
-    info "✓ 系统优化完成,已创建优化标记"
+        echo -n "初始拥塞窗口..."
+        if set_initial_congestion_window_; then
+            echo "✓"
+        else
+            echo "✗ (可忽略)"
+        fi
 
-    seperator
-fi
+        echo -n "内核参数 (BBR)..."
+        if kernel_settings_; then
+            echo "✓"
+        else
+            echo "✗ (BBR 不可用)"
+        fi
 
-# ===== 创建/更新开机启动脚本 =====
-if [ ! -f /root/.boot-script.sh ]; then
-    info "配置开机启动脚本"
-    cat > /root/.boot-script.sh << 'EOFBOOT'
+        touch "$OPTIM_MARKER"
+
+        seperator
+
+        # ===== 创建开机启动脚本 =====
+        info "配置开机启动脚本"
+        cat > /root/.boot-script.sh << 'EOFBOOT'
 #!/bin/bash
 sleep 120s
 
@@ -1619,9 +1700,9 @@ fi
 modprobe tcp_bbr 2>/dev/null || true
 EOFBOOT
 
-    chmod +x /root/.boot-script.sh
+        chmod +x /root/.boot-script.sh
 
-    cat > /etc/systemd/system/boot-script.service << 'EOF'
+        cat > /etc/systemd/system/boot-script.service << 'EOF'
 [Unit]
 Description=Boot optimization script
 After=network.target
@@ -1635,16 +1716,18 @@ RemainAfterExit=true
 WantedBy=multi-user.target
 EOF
 
-    systemctl daemon-reload 2>/dev/null
-    systemctl enable boot-script.service >/dev/null 2>&1
-    info "✓ 开机启动脚本配置完成"
+        systemctl daemon-reload 2>/dev/null
+        systemctl enable boot-script.service >/dev/null 2>&1
+        info "✓ 开机启动脚本配置完成"
+
+        seperator
+    fi
 else
-    info "✓ 开机启动脚本已存在,跳过创建"
+    info "未启用系统优化,跳过"
+    seperator
 fi
 
-seperator
-
-# ===== 安装完成 =====
+# ===== 安装完成 (新格式输出) =====
 info "安装完成!"
 echo -e "\n"
 
@@ -1662,27 +1745,19 @@ if [[ -n "$qb_install_success" ]]; then
     echo "--------"
     info "🧩 qBittorrent"
     boring_text "管理地址: http://$publicip:$qb_port"
-    boring_text "用户名: $username"
-    boring_text "密码: $password"
 fi
 
 if [[ -n "$filebrowser_install_success" ]]; then
     echo "--------"
     info "📁 FileBrowser"
     boring_text "管理地址: http://$publicip:$filebrowser_port"
-    boring_text "用户名: $username"
-    boring_text "密码: $password"
 fi
 
 echo "--------"
 echo -e "\n"
 
-if [ $need_system_optimization -eq 1 ]; then
-    warn "建议重启系统以确保所有优化生效"
-    boring_text "  重启命令: reboot"
-else
-    warn "如果无法打开网页，可能是防火墙没有放通端口"
-fi
+warn "建议重启系统以确保所有优化生效，如果无法打开网页，可能是防火墙没有放通端口"
+boring_text "  重启命令: reboot"
 
 seperator
 
