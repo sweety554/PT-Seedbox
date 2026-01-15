@@ -170,6 +170,20 @@ prompt_instance_name() {
     done
 }
 
+sanitize_container_name() {
+    local name=$1
+    local fallback=$2
+
+    name=$(printf '%s' "$name" | tr -cd 'A-Za-z0-9_.-')
+    if [ -z "$name" ]; then
+        name="$fallback"
+    fi
+    if ! [[ "$name" =~ ^[A-Za-z0-9] ]]; then
+        name="${fallback}${name}"
+    fi
+    echo "$name"
+}
+
 # ===== 颜色输出函数 =====
 info() {
     tput sgr0; tput setaf 2; tput bold
@@ -487,6 +501,7 @@ install_vertex_() {
     local qb_port=$4
     local vertex_name=$5
     local vertex_data_dir=$6
+    vertex_name=$(sanitize_container_name "$vertex_name" "vertex")
 
     if ! install_docker_; then
         return 1
@@ -666,6 +681,7 @@ install_filebrowser_() {
     local fb_port=$3
     local fb_name=$4
     local fb_data_dir=$5
+    fb_name=$(sanitize_container_name "$fb_name" "filebrowser")
 
     if ! install_docker_; then
         return 1
