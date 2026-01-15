@@ -142,6 +142,17 @@ prompt_instance_name() {
         if [ -z "$name" ]; then
             name="$default_name"
         fi
+        name=$(printf '%s' "$name" | tr -d '[:space:]')
+        if [ -z "$name" ]; then
+            warn "实例名称不能为空"
+            suffix=$((suffix + 1))
+            continue
+        fi
+        if ! [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]; then
+            warn "实例名称仅支持字母数字及 . _ -"
+            suffix=$((suffix + 1))
+            continue
+        fi
         if command -v docker >/dev/null 2>&1; then
             if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -Fxq "$name"; then
                 warn "实例名称已存在: $name"
